@@ -59,6 +59,7 @@
   <script>
     const $ = id => document.getElementById(id); 
     let fullData=[], metrics=[], chartMetrics=[], index=0, timer=null, chart=null, labels=[], fault=false, energy=0, criticalActive=false, toastTimer=null;
+    window.currentIndex = 0; // Expose index for the chart plugin
     
     $('loginForm').addEventListener('submit', e => { e.preventDefault(); if ($('username').value==='admin' && $('password').value==='123456') { $('loginScreen').style.display='none'; $('app').style.display='block'; } else $('loginError').textContent='Incorrect username or password. Use the demo credentials below.'; });
     document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{document.querySelectorAll('.tab').forEach(item=>item.classList.toggle('active',item===tab));document.querySelectorAll('.page-section').forEach(section=>section.classList.toggle('active',section.id===tab.dataset.section));if(tab.dataset.section==='simulation'&&chart)chart.resize();window.scrollTo({top:0,behavior:'smooth'});});
@@ -66,7 +67,7 @@
     function dismissCritical(){ $('criticalBanner').classList.remove('show'); $('criticalToast').classList.remove('show'); } 
     $('dismissBanner').onclick=dismissCritical; $('dismissToast').onclick=dismissCritical;
     
-    function notifyCritical(time, reason){ const message=`${reason} at ${time}. Check the inverter, grid connection and site safety immediately.`; $('criticalBannerText').textContent=message; $('criticalBanner').classList.add('show'); $('criticalToastText').textContent=message; $('criticalToast').classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('criticalToast').classList.remove('show'),10000); log(`[${time}] CRITICAL: ${reason}. Immediate attention required.`,'critical'); }
+    function notifyCritical(time, reason){ const message=`${reason} [Time: ${time}]`; $('criticalBannerText').textContent=message; $('criticalBanner').classList.add('show'); $('criticalToastText').textContent=message; $('criticalToast').classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('criticalToast').classList.remove('show'),10000); log(message, reason.includes('FALSE') ? 'warning' : 'critical'); }
     function log(message, kind='info'){ const box=$('log'), last=box.lastElementChild; if(last&&last.textContent.includes(message))return; box.insertAdjacentHTML('beforeend',`<div class="entry ${kind}">${message}</div>`);box.scrollTop=box.scrollHeight; }
     
     document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('log').dataset.filter=b.dataset.filter;});
@@ -76,25 +77,24 @@
         const reader=new FileReader();
         reader.onload=ev=>{
             const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
-            // FIX: raw:false ensures Excel serial dates are converted back to formatted string text
             fullData=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:0, raw:false});
             if(!fullData.length)return;
             metrics=Object.keys(fullData[0]).filter(k=>k.toLowerCase()!=='time'&&k.trim());
-            index=0;energy=0;criticalActive=false;fault=false;dismissCritical();
+            index=0; window.currentIndex=0; energy=0;criticalActive=false;fault=false;dismissCritical();
             $('fault').textContent='⚡ Inject fault';$('fault').style.background='';
             $('slider').max=fullData.length-1;
             ['slider','speed','play','fault'].forEach(id=>$(id).disabled=false);
             $('pause').disabled=true;
-            initChart();process(fullData[0]);log(`Loaded ${file.name}. Press Play to begin.`);
+            initChart();process(fullData[0]);log(`[SYSTEM START] Loaded ${file.name}. Ready for validation testing.`);
         };
         reader.readAsArrayBuffer(file);
     };
     
-    $('play').onclick=()=>{clearInterval(timer);$('play').disabled=true;$('pause').disabled=false;timer=setInterval(()=>{if(index>=fullData.length-1){clearInterval(timer);timer=null;$('play').disabled=false;$('pause').disabled=true;log('End of dataset reached.');return;}index++;$('slider').value=index;process(fullData[index]);},+$('speed').value);}; 
+    $('play').onclick=()=>{clearInterval(timer);$('play').disabled=true;$('pause').disabled=false;timer=setInterval(()=>{if(index>=fullData.length-1){clearInterval(timer);timer=null;$('play').disabled=false;$('pause').disabled=true;log('End of dataset reached.');return;}index++;window.currentIndex=index;$('slider').value=index;process(fullData[index]);},+$('speed').value);}; 
     $('pause').onclick=()=>{clearInterval(timer);timer=null;$('play').disabled=false;$('pause').disabled=true;}; 
     $('speed').onchange=()=>{if(timer){clearInterval(timer);timer=null;$('play').disabled=false;$('play').click();}};
     $('slider').oninput=()=>{
-        index=+$('slider').value;energy=0;for(let i=0;i<index;i++)calculate(fullData[i]);
+        index=+$('slider').value; window.currentIndex=index; energy=0;for(let i=0;i<index;i++)calculate(fullData[i]);
         labels.length=0;chart.data.datasets.forEach(d=>d.data=[]);
         for(let i=0;i<=index;i++){
             const chartRow={...fullData[i]};
@@ -112,61 +112,92 @@
     
     function process(row){const time=row.Time||row[Object.keys(row)[0]]||`Row ${index}`, data={...row};if(fault)metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))data[m]=0});$('time').textContent=time;calculate(data);drawEquipment(data);updateInsights(time,data);status(time,data);updateChart(time,data);}
     function calculate(data){let powerMetric=metrics.find(m=>/power.*active|active.*power/i.test(m))||metrics.find(m=>/power/i.test(m)),kw=powerMetric?+data[powerMetric]:0;if(kw>0)energy+=kw*.25;$('energy').innerHTML=`${energy.toFixed(2)} <small>kWh</small>`;$('savings').textContent=`RM ${(energy*.5).toFixed(2)}`;$('co2').innerHTML=`${(energy*.6).toFixed(2)} <small>kg</small>`;}
-    function drawEquipment(data){$('equipment').innerHTML=metrics.slice(0,6).map(m=>{let v=parseFloat(data[m])||0;return `<div class="equip-item"><span>${m.replace('Inverter1/','').slice(0,24)}</span><strong style="color:${v?'#396520':'#b84a3b'}">${v.toFixed(2)}</strong></div>`}).join('');}
     
-    // NEW ACOF LOGIC GATE STATUS FUNCTION
+    // Upgraded Equipment Draw: Turns red if the value is 0.0
+    function drawEquipment(data){$('equipment').innerHTML=metrics.slice(0,6).map(m=>{let v=parseFloat(data[m])||0; const isZero = v===0; return `<div class="equip-item" style="${isZero ? 'background:#fbeceb; border-color:#b84a3b;' : ''}"><span>${m.replace('Inverter1/','').slice(0,24)}</span><strong style="color:${isZero?'#b84a3b':'#396520'}">${v.toFixed(2)}</strong></div>`}).join('');}
+    
+    // Upgraded Status Function with Detailed Professional Logs
     function status(time, data) {
         const measuredGridLoss = metrics.some(m => /voltage.*(phase|ac)|(phase|ac).*voltage/i.test(m) && parseFloat(data[m]) === 0);
         const dcPowerKey = metrics.find(m => /dc power/i.test(m));
         const dcPowerVal = dcPowerKey ? parseFloat(data[dcPowerKey]) : 0;
         
-        // ACOF Logic Gate: Identify contradictory state (0V Grid Loss paired with High/Max Generation)
+        // ACOF Logic Gate
         const isAcofTestRow = measuredGridLoss && (dcPowerVal > 20.0);
         const issue = fault || measuredGridLoss;
         const node = $('status');
         
-        node.className = 'status ' + (issue ? 'fault' : 'healthy');
-        
         if (isAcofTestRow) {
-            node.textContent = '⚡ ACOF LOGIC VALIDATION ALARM';
-            node.style.background = '#ffebee';
-            node.style.color = '#c62828';
-            if (!criticalActive) {
-                notifyCritical(time, 'ACOF Testing Alert: Contradictory State Detected (0.0V Grid Loss vs ' + dcPowerVal + 'kW DC Power) - False-Positive Suppressed');
-            }
+            node.className = 'status fault';
+            node.textContent = '⚡ ACOF FALSE ALARM SUPPRESSED';
+            node.style.background = '#fff8e1';
+            node.style.color = '#f57f17';
+            if (!criticalActive) notifyCritical(time, `[FALSE ALARM SUPPRESSED] Telemetry Logic Conflict. Grid Phase reports 0.0V (Loss), but DC Power reports ${dcPowerVal}kW (Peak). Internal data validation logic rejected this state. >> ACTION: Alarm suppressed. No site maintenance required.`);
+            criticalActive = true;
+        } else if (issue) {
+            node.className = 'status fault';
+            node.textContent = '⚠ TRUE FAULT CONFIRMED';
+            node.style.background = ''; node.style.color = '';
+            if (!criticalActive) notifyCritical(time, fault ? '[SYSTEM DIAGNOSTIC] Manual grid fault triggered by Administrator. Forcing boundary limits to 0.0V. >> ACTION: Testing in progress.' : '[TRUE FAULT CONFIRMED] Genuine AC Grid Loss Detected. Phase voltage dropped to 0.0V with zero corresponding power. >> ACTION: Critical failure. Dispatch technician to verify AC mains.');
+            criticalActive = true;
         } else {
-            node.style.background = ''; 
-            node.style.color = '';
-            node.textContent = issue ? '⚠ GRID / SYSTEM FAULT' : '✓ ONLINE — HEALTHY';
-            if (issue && !criticalActive) {
-                notifyCritical(time, fault ? 'Simulation grid fault injected manually' : 'AC grid voltage loss detected');
-            }
+            node.className = 'status healthy';
+            node.textContent = '✓ ONLINE — HEALTHY';
+            node.style.background = ''; node.style.color = '';
+            if (criticalActive) log(`[SYSTEM RECOVERY] All sensor parameters have returned to nominal boundaries at ${time}. Site is online and healthy.`, 'info');
+            criticalActive = false;
         }
-        criticalActive = issue;
     }
 
     function updateInsights(time,data){const items=[['Recorded time',time],...metrics.map(m=>[m.replace('Inverter1/',''),Number.isFinite(parseFloat(data[m]))?parseFloat(data[m]).toFixed(2):String(data[m]||'—')])];$('insights').innerHTML=items.map(([label,value])=>`<div class="insight"><span>${label}</span><strong>${value}</strong></div>`).join('');}
     
+    // Custom Chart Plugin for Vertical Tracking Line
+    const verticalLinePlugin = {
+        id: 'verticalLine',
+        afterDraw: chart => {
+            if (labels.length === 0) return;
+            const ctx = chart.ctx;
+            const x = chart.scales.x.getPixelForTick(labels.length - 1);
+            const topY = chart.scales.y.top;
+            const bottomY = chart.scales.y.bottom;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, topY);
+            ctx.lineTo(x, bottomY);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#c62828'; // Red dashed line
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.restore();
+        }
+    };
+
     function initChart(){
         if(chart)chart.destroy();
         labels=[];
-        const colors=['#5d8f35','#83a962','#bd8616','#82968a'];
+        // Distinct Colors: Bright Green (AC Power) and Deep Blue (DC Power)
+        const colors=['#1e88e5','#43a047','#fb8c00','#8e24aa'];
         
-        // FIX: Find the "power" columns to graph instead of Voltage/Current
         chartMetrics = metrics.filter(m => /power/i.test(m)).slice(0, 4);
-        if(chartMetrics.length === 0) chartMetrics = metrics.slice(0,4); // fallback if no power column
+        if(chartMetrics.length === 0) chartMetrics = metrics.slice(0,4);
         
         chart=new Chart($('chart'),{
             type:'line',
+            plugins: [verticalLinePlugin], // Inject the vertical tracker line
             data:{
                 labels,
                 datasets:chartMetrics.map((m,i)=>({
                     label:m.replace('Inverter1/',''),
                     data:[],
-                    borderColor:colors[i],backgroundColor:colors[i]+'22',fill:true,tension:.3,pointRadius:0,borderWidth:2
+                    borderColor:colors[i],backgroundColor:colors[i]+'22',fill:true,tension:.3,pointRadius:2,borderWidth:2, pointBackgroundColor: colors[i]
                 }))
             },
-            options:{responsive:true,maintainAspectRatio:false,animation:{duration:0},plugins:{legend:{labels:{color:'#526058'}},},scales:{x:{grid:{color:'#edf0ec'},ticks:{color:'#758078',maxRotation:55,minRotation:55}},y:{beginAtZero:true,grid:{color:'#edf0ec'},ticks:{color:'#758078'}}}}
+            options:{
+                responsive:true,maintainAspectRatio:false,animation:{duration:0},
+                interaction: { mode: 'index', intersect: false }, // Unified tooltips for both lines
+                plugins:{legend:{labels:{color:'#526058'}}, tooltip: { backgroundColor: 'rgba(38, 49, 44, 0.9)', titleFont: {size: 13}, bodyFont: {size: 13, weight: 'bold'} }},
+                scales:{x:{grid:{color:'#edf0ec'},ticks:{color:'#758078',maxRotation:55,minRotation:55}},y:{beginAtZero:true,grid:{color:'#edf0ec'},ticks:{color:'#758078'}}}
+            }
         });
     }
     
