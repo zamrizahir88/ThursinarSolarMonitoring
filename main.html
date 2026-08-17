@@ -47,8 +47,9 @@
     .status-card.critical { background:linear-gradient(135deg, #fbeceb, #f5d5d3); color:var(--danger); border-color:#eab6b3; } 
     
     /* Command Center Layout */
+    /* FIX: min-width: 0 added to stop horizontal page stretching */
     .dashboard-layout { display:grid; grid-template-columns: 1.8fr 1.2fr; gap:14px; align-items:start; }
-    .left-panel { display:grid; gap:14px; }
+    .left-panel { display:grid; gap:14px; min-width: 0; } 
     .controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
     .action { padding:10px 13px;border:0;border-radius:8px;background:var(--green);color:#fff;font-weight:700; transition:0.2s;} .action:hover{background:var(--green-dark);} .action:disabled { opacity:.45;cursor:not-allowed; }
     .danger { background:var(--danger); margin-left:auto; } .danger:hover { background:#963b2f; }
@@ -58,12 +59,16 @@
     .time { min-width:130px;text-align:right;color:var(--green-dark);font-weight:800; font-size:14px; background:#edf6e8; padding:6px 12px; border-radius:6px; }
     
     /* Graph */
+    /* FIX: card gets overflow:hidden to act as a hard boundary */
+    .chart-card { min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
     .chart-header { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px; }
     .zoom-controls { display:flex; gap:6px; }
     .zoom-controls button { background: #f3f5f2; color: #26312c; border: 1px solid var(--line); font-size: 15px; padding: 5px 12px; }
     .zoom-controls button:hover { background: #e8ece7; }
-    .chart-scroll { overflow-x:auto; padding-bottom:8px; }
-    .chart-stage { height:400px; min-width:100%; position:relative; }
+    
+    /* FIX: chart-scroll now properly contains the horizontal overflowing graph */
+    .chart-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 8px; width: 100%; }
+    .chart-stage { height: 400px; min-width: 100%; position: relative; }
     
     /* Right Panel (Diagnostics Sidebar) */
     .right-panel { display:grid; gap:14px; }
@@ -268,7 +273,6 @@
     $('dismissBanner').onclick=dismissCritical; $('dismissToast').onclick=dismissCritical;
     function notifyCritical(time, reason, rowIdx){ const message=`[${time}] ${reason}`; $('criticalBannerText').textContent=message; $('criticalBanner').classList.add('show'); $('criticalToastText').textContent=message; $('criticalToast').classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('criticalToast').classList.remove('show'),12000); log(message, reason.includes('SUPPRESSED') ? 'warning' : 'critical', rowIdx); }
     
-    // Upgraded Log function for Event-Driven Syncing
     function log(message, kind='info', rowIdx=null){ 
         const box=$('log'), last=box.lastElementChild; 
         if(last&&last.textContent.includes(message))return; 
@@ -278,7 +282,7 @@
         box.scrollTop=box.scrollHeight; 
     }
 
-    // Interactive Clickable Logs Logic
+    // Interactive Clickable Logs
     $('log').addEventListener('click', e => {
         const entry = e.target.closest('.clickable');
         if(entry && entry.dataset.index) {
@@ -286,7 +290,6 @@
             const targetIdx = parseInt(entry.dataset.index);
             $('slider').value = targetIdx;
             $('slider').oninput(); 
-            // Smoothly snap timeline to the clicked fault
             setTimeout(() => {
                 if (chart && chart.scales.x) {
                     const scroll = $('chartScroll');
@@ -299,20 +302,39 @@
 
     document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('log').dataset.filter=b.dataset.filter;});
     
-    // Data Loading
+    // Data Loading with strict Date Parsing fix
     $('fileUpload').onchange=e=>{
         const file=e.target.files[0];if(!file)return;
         const reader=new FileReader();
         reader.onload=ev=>{
-            const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
-            // The magic fix: Extracting raw strings from CSV to preserve '16:45' format
-            const rawData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: false});
+            // FIX: cellDates:true forces SheetJS to respect raw dates instead of defaulting to generic short dates
+            const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array', cellDates:true});
+            const rawData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1});
             const headers = rawData[0];
+            const timeIdx = headers.findIndex(h => /time/i.test(h));
+            
             fullData = rawData.slice(1).map(row => {
                 let obj = {};
-                headers.forEach((h, i) => obj[h] = row[i]);
+                headers.forEach((h, i) => {
+                    let val = row[i];
+                    // Strict Date/Time Formatter
+                    if (i === timeIdx && val instanceof Date) {
+                        const dd = String(val.getDate()).padStart(2, '0');
+                        const mm = val.toLocaleString('default', { month: 'short' });
+                        const yyyy = val.getFullYear();
+                        const hh = String(val.getHours()).padStart(2, '0');
+                        const mins = String(val.getMinutes()).padStart(2, '0');
+                        val = `${dd}/${mm}/${yyyy} ${hh}:${mins}`;
+                    } else if (i === timeIdx && typeof val === 'number') {
+                        // Backup check if excel sent raw serial number
+                        const d = XLSX.SSF.parse_date_code(val);
+                        val = `${String(d.d).padStart(2,'0')}/${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.m-1]}/${d.y} ${String(d.H).padStart(2,'0')}:${String(d.M).padStart(2,'0')}`;
+                    }
+                    obj[h] = val !== undefined ? val : 0;
+                });
                 return obj;
             });
+            
             if(!fullData.length)return;
             metrics=headers.filter(k=>k.toLowerCase()!=='time'&&k.trim());
             index=0; window.currentIndex=0; energy=0;criticalActive=false;fault=false;dismissCritical();
@@ -366,7 +388,7 @@
         }).join('');
     }
     
-    // Upgraded Status passing Index to Notification
+    // Status Logic
     function status(time, data) {
         const measuredGridLoss = metrics.some(m => /voltage.*(phase|ac)|(phase|ac).*voltage/i.test(m) && parseFloat(data[m]) === 0);
         const dcPowerKey = metrics.find(m => /dc power/i.test(m));
@@ -439,7 +461,7 @@
     function updateChart(time,data, autoUpdate=true){
         if(!chart)return;
         labels.push(time);
-        updateChartWidth(); // Applies the zoom scaling automatically
+        updateChartWidth(); 
         chart.data.datasets.forEach((d,i)=>d.data.push(parseFloat(data[chartMetrics[i]])||0));
         if (autoUpdate) {
             chart.update();
