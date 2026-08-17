@@ -241,20 +241,21 @@
     const $ = id => document.getElementById(id); 
     let fullData=[], metrics=[], chartMetrics=[], index=0, timer=null, chart=null, labels=[], fault=false, energy=0, criticalActive=false, toastTimer=null;
     
-    // Zoom and Global Variables
+    // Global tracking variables for the new "Non-Truncating" logic
     window.currentIndex = 0; 
+    let maxRevealedIndex = 0; 
     let zoomFactor = 1;
     let baseSpacing = 55;
 
     // Zoom Controls
     $('zoomIn').onclick = () => { zoomFactor += 0.5; updateChartWidth(); };
     $('zoomOut').onclick = () => { zoomFactor = Math.max(0.5, zoomFactor - 0.5); updateChartWidth(); };
+    
     function updateChartWidth() {
         if(!chart) return;
         const stage=$('chartStage'), scroll=$('chartScroll');
         stage.style.width=`${Math.max(scroll.clientWidth, labels.length * baseSpacing * zoomFactor)}px`;
         chart.resize();
-        // Snap view to current tracker location after zooming
         setTimeout(() => {
             const tickIndex = Math.min(window.currentIndex, labels.length - 1);
             if(chart.scales.x) {
@@ -264,7 +265,7 @@
         }, 50);
     }
 
-    // Auth & Nav
+    // Auth & Navigation
     $('loginForm').addEventListener('submit', e => { e.preventDefault(); if ($('username').value==='admin' && $('password').value==='123456') { $('loginScreen').style.display='none'; $('app').style.display='block'; } else $('loginError').textContent='Incorrect username or password.'; });
     document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{document.querySelectorAll('.tab').forEach(item=>item.classList.toggle('active',item===tab));document.querySelectorAll('.page-section').forEach(section=>section.classList.toggle('active',section.id===tab.dataset.section));if(tab.dataset.section==='simulation'&&chart)chart.resize();window.scrollTo({top:0,behavior:'smooth'});});
     
@@ -282,21 +283,16 @@
         box.scrollTop=box.scrollHeight; 
     }
 
-    // Interactive Clickable Logs
+    // Interactive Clickable Logs (NON-TRUNCATING)
     $('log').addEventListener('click', e => {
         const entry = e.target.closest('.clickable');
         if(entry && entry.dataset.index) {
             clearInterval(timer); timer=null; $('play').disabled=false; $('pause').disabled=true; // Auto pause
             const targetIdx = parseInt(entry.dataset.index);
             $('slider').value = targetIdx;
-            $('slider').oninput(); 
-            setTimeout(() => {
-                if (chart && chart.scales.x) {
-                    const scroll = $('chartScroll');
-                    const xPixel = chart.scales.x.getPixelForTick(Math.min(targetIdx, labels.length - 1));
-                    scroll.scrollTo({ left: xPixel - scroll.clientWidth / 2, behavior: 'smooth' });
-                }
-            }, 100);
+            
+            // Jump to the point without erasing the graph
+            jumpToPoint(targetIdx);
         }
     });
 
@@ -307,7 +303,6 @@
         const file=e.target.files[0];if(!file)return;
         const reader=new FileReader();
         reader.onload=ev=>{
-            // FIX: cellDates:true forces SheetJS to respect raw dates instead of defaulting to generic short dates
             const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array', cellDates:true});
             const rawData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1});
             const headers = rawData[0];
@@ -317,7 +312,6 @@
                 let obj = {};
                 headers.forEach((h, i) => {
                     let val = row[i];
-                    // Strict Date/Time Formatter
                     if (i === timeIdx && val instanceof Date) {
                         const dd = String(val.getDate()).padStart(2, '0');
                         const mm = val.toLocaleString('default', { month: 'short' });
@@ -326,7 +320,6 @@
                         const mins = String(val.getMinutes()).padStart(2, '0');
                         val = `${dd}/${mm}/${yyyy} ${hh}:${mins}`;
                     } else if (i === timeIdx && typeof val === 'number') {
-                        // Backup check if excel sent raw serial number
                         const d = XLSX.SSF.parse_date_code(val);
                         val = `${String(d.d).padStart(2,'0')}/${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.m-1]}/${d.y} ${String(d.H).padStart(2,'0')}:${String(d.M).padStart(2,'0')}`;
                     }
@@ -337,7 +330,7 @@
             
             if(!fullData.length)return;
             metrics=headers.filter(k=>k.toLowerCase()!=='time'&&k.trim());
-            index=0; window.currentIndex=0; energy=0;criticalActive=false;fault=false;dismissCritical();
+            index=0; window.currentIndex=0; maxRevealedIndex=0; energy=0;criticalActive=false;fault=false;dismissCritical();
             $('fault').textContent='⚡ Inject Manual Fault';$('fault').style.background='';
             $('slider').max=fullData.length-1;
             ['slider','speed','play','fault'].forEach(id=>$(id).disabled=false);
@@ -352,33 +345,92 @@
     $('play').onclick=()=>{clearInterval(timer);$('play').disabled=true;$('pause').disabled=false;timer=setInterval(()=>{if(index>=fullData.length-1){clearInterval(timer);timer=null;$('play').disabled=false;$('pause').disabled=true;log('End of dataset reached. Validation complete.','info');return;}index++;window.currentIndex=index;$('slider').value=index;process(fullData[index]);},+$('speed').value);}; 
     $('pause').onclick=()=>{clearInterval(timer);timer=null;$('play').disabled=false;$('pause').disabled=true;}; 
     $('speed').onchange=()=>{if(timer){clearInterval(timer);timer=null;$('play').disabled=false;$('play').click();}};
-    $('slider').oninput=()=>{
-        index=+$('slider').value; window.currentIndex=index; energy=0;for(let i=0;i<index;i++)calculate(fullData[i]);
-        labels.length=0;chart.data.datasets.forEach(d=>d.data=[]);
-        for(let i=0;i<=index;i++){
-            const chartRow={...fullData[i]};
-            if(fault)metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))chartRow[m]=0});
-            const chartTime=chartRow.Time||chartRow[Object.keys(chartRow)[0]]||`Row ${i}`;
-            updateChart(chartTime,chartRow, false);
-        }
-        chart.update(); 
-        const current={...fullData[index]};
-        if(fault)metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))current[m]=0});
-        const time=current.Time||current[Object.keys(current)[0]]||`Row ${index}`;
-        $('time').textContent=time;calculate(current);drawEquipment(current);status(time,current);
-        
-        // Auto-scroll logic for slider dragging
-        const scroll=$('chartScroll');
-        if (chart && chart.scales.x) {
-             const xPixel = chart.scales.x.getPixelForTick(Math.min(index, labels.length - 1));
-             scroll.scrollLeft = xPixel - scroll.clientWidth / 2;
-        }
-    }; 
+    
+    // Slider Dragging (NON-TRUNCATING)
+    $('slider').oninput=()=>{ jumpToPoint(+$('slider').value); }; 
     
     $('fault').onclick=()=>{fault=!fault;$('fault').textContent=fault?'↻ Restore Grid Limits':'⚡ Inject Manual Fault';$('fault').style.background=fault?'#bd8616':'';process(fullData[index]);};
     
-    function process(row){const time=row.Time||row[Object.keys(row)[0]]||`Row ${index}`, data={...row};if(fault)metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))data[m]=0});$('time').textContent=time;calculate(data);drawEquipment(data);status(time,data);updateChart(time,data, true);}
-    function calculate(data){let powerMetric=metrics.find(m=>/power.*active|active.*power/i.test(m))||metrics.find(m=>/power/i.test(m)),kw=powerMetric?+data[powerMetric]:0;if(kw>0)energy+=kw*.25;$('energy').innerHTML=`${energy.toFixed(2)} <small>kWh</small>`;$('savings').textContent=`RM ${(energy*.5).toFixed(2)}`;$('co2').innerHTML=`${(energy*.6).toFixed(2)} <small>kg</small>`;}
+    function jumpToPoint(targetIdx) {
+        window.currentIndex = targetIdx; 
+        index = targetIdx;
+
+        // If user drags slider into the future, reveal graph data
+        if (targetIdx > maxRevealedIndex) {
+            for (let i = maxRevealedIndex + 1; i <= targetIdx; i++) {
+                const chartRow = {...fullData[i]};
+                if(fault) metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))chartRow[m]=0});
+                const chartTime = chartRow.Time || chartRow[Object.keys(chartRow)[0]] || `Row ${i}`;
+                labels.push(chartTime);
+                chart.data.datasets.forEach((d, k) => d.data.push(parseFloat(chartRow[chartMetrics[k]]) || 0));
+            }
+            maxRevealedIndex = targetIdx;
+            updateChartWidth();
+        }
+
+        // Recalculate Energy accurately up to the target index
+        let tempEnergy = 0;
+        let powerMetric=metrics.find(m=>/power.*active|active.*power/i.test(m))||metrics.find(m=>/power/i.test(m));
+        for(let i=0; i<=targetIdx; i++) {
+           let kw = powerMetric ? +fullData[i][powerMetric] : 0;
+           if(kw>0) tempEnergy += kw * 0.25;
+        }
+        energy = tempEnergy;
+        $('energy').innerHTML=`${energy.toFixed(2)} <small>kWh</small>`;
+        $('savings').textContent=`RM ${(energy*.5).toFixed(2)}`;
+        $('co2').innerHTML=`${(energy*.6).toFixed(2)} <small>kg</small>`;
+
+        // Update UI tiles
+        const current = {...fullData[targetIdx]};
+        if(fault) metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m)) current[m]=0});
+        const time = current.Time || current[Object.keys(current)[0]] || `Row ${targetIdx}`;
+        $('time').textContent = time;
+        drawEquipment(current);
+        status(time, current, false); // false = do not re-log past events
+        
+        chart.update(); // redraws the vertical line pointer
+
+        // Smooth scroll chart to center the vertical line
+        setTimeout(() => {
+            if (chart && chart.scales.x) {
+                const scroll = $('chartScroll');
+                const xPixel = chart.scales.x.getPixelForTick(Math.min(targetIdx, labels.length - 1));
+                scroll.scrollTo({ left: xPixel - scroll.clientWidth / 2, behavior: 'smooth' });
+            }
+        }, 50);
+    }
+
+    function process(row){
+        const time=row.Time||row[Object.keys(row)[0]]||`Row ${index}`;
+        const data={...row};
+        if(fault) metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m)) data[m]=0});
+        $('time').textContent=time;
+        
+        let powerMetric=metrics.find(m=>/power.*active|active.*power/i.test(m))||metrics.find(m=>/power/i.test(m));
+        let kw = powerMetric ? +data[powerMetric] : 0;
+        if(kw>0) energy += kw * 0.25;
+        $('energy').innerHTML=`${energy.toFixed(2)} <small>kWh</small>`;
+        $('savings').textContent=`RM ${(energy*.5).toFixed(2)}`;
+        $('co2').innerHTML=`${(energy*.6).toFixed(2)} <small>kg</small>`;
+
+        drawEquipment(data);
+        status(time, data, true); // true = generate logs normally
+        
+        // Push new data to chart only if we exceed maxRevealedIndex
+        if (index > maxRevealedIndex) {
+            labels.push(time);
+            chart.data.datasets.forEach((d, i) => d.data.push(parseFloat(data[chartMetrics[i]]) || 0));
+            maxRevealedIndex = index;
+            updateChartWidth();
+        }
+        
+        chart.update();
+        const scroll=$('chartScroll');
+        if(chart.scales.x) {
+            const xPixel = chart.scales.x.getPixelForTick(Math.min(index, labels.length - 1));
+            scroll.scrollLeft = xPixel - scroll.clientWidth / 2;
+        }
+    }
     
     function drawEquipment(data){
         $('equipment').innerHTML=metrics.slice(0,6).map(m=>{
@@ -388,8 +440,8 @@
         }).join('');
     }
     
-    // Status Logic
-    function status(time, data) {
+    // Status Logic - Added boolean to prevent duplicate logs when clicking history
+    function status(time, data, isLoggingEnabled = true) {
         const measuredGridLoss = metrics.some(m => /voltage.*(phase|ac)|(phase|ac).*voltage/i.test(m) && parseFloat(data[m]) === 0);
         const dcPowerKey = metrics.find(m => /dc power/i.test(m));
         const dcPowerVal = dcPowerKey ? parseFloat(data[dcPowerKey]) : 0;
@@ -401,17 +453,17 @@
         if (isAcofTestRow) {
             node.className = 'status-card fault';
             node.innerHTML = '⚡ ACOF FALSE ALARM<br><small>Suppressed</small>';
-            if (!criticalActive) notifyCritical(time, `[FALSE ALARM SUPPRESSED] Logic Conflict. Grid Phase reports 0.0V, but DC Power reports ${dcPowerVal}kW. Alarm suppressed.`, index);
+            if (isLoggingEnabled && !criticalActive) notifyCritical(time, `[FALSE ALARM SUPPRESSED] Logic Conflict. Grid Phase reports 0.0V, but DC Power reports ${dcPowerVal}kW. Alarm suppressed.`, index);
             criticalActive = true;
         } else if (issue) {
             node.className = 'status-card critical';
             node.innerHTML = '⚠ TRUE FAULT<br><small>Confirmed</small>';
-            if (!criticalActive) notifyCritical(time, fault ? '[SYSTEM DIAGNOSTIC] Manual grid fault triggered by Administrator. Forcing boundary limits to 0.0V.' : '[TRUE FAULT CONFIRMED] Genuine AC Grid Loss Detected. Phase voltage dropped to 0.0V. Dispatch technician.', index);
+            if (isLoggingEnabled && !criticalActive) notifyCritical(time, fault ? '[SYSTEM DIAGNOSTIC] Manual grid fault triggered by Administrator. Forcing boundary limits to 0.0V.' : '[TRUE FAULT CONFIRMED] Genuine AC Grid Loss Detected. Phase voltage dropped to 0.0V. Dispatch technician.', index);
             criticalActive = true;
         } else {
             node.className = 'status-card healthy';
             node.innerHTML = '✓ ONLINE<br><small>Healthy</small>';
-            if (criticalActive) log(`[${time}] [SYSTEM RECOVERY] All sensor parameters have returned to nominal boundaries. Site is online and healthy.`, 'info');
+            if (isLoggingEnabled && criticalActive) log(`[${time}] [SYSTEM RECOVERY] All sensor parameters have returned to nominal boundaries. Site is online and healthy.`, 'info');
             criticalActive = false;
         }
     }
@@ -456,22 +508,6 @@
                 scales:{x:{grid:{color:'#edf0ec'},ticks:{color:'#758078',maxRotation:55,minRotation:55, font:{weight:'bold'}}},y:{beginAtZero:true,grid:{color:'#edf0ec'},ticks:{color:'#758078', font:{weight:'bold'}}}}
             }
         });
-    }
-    
-    function updateChart(time,data, autoUpdate=true){
-        if(!chart)return;
-        labels.push(time);
-        updateChartWidth(); 
-        chart.data.datasets.forEach((d,i)=>d.data.push(parseFloat(data[chartMetrics[i]])||0));
-        if (autoUpdate) {
-            chart.update();
-            const scroll=$('chartScroll');
-            const tickIndex = Math.min(window.currentIndex, labels.length - 1);
-            if(chart.scales.x) {
-                const xPixel = chart.scales.x.getPixelForTick(tickIndex);
-                scroll.scrollLeft = xPixel - scroll.clientWidth / 2;
-            }
-        }
     }
   </script>
 </body>
