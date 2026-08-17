@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SDZ Halal Mart | Solar Monitoring</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root { --green:#5d8f35; --green-dark:#396520; --green-soft:#eaf2e3; --ink:#26312c; --muted:#6a746e; --line:#dce2dc; --page:#f3f5f2; --card:#fff; --danger:#b84a3b; --amber:#bd8616; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Inter,Segoe UI,Arial,sans-serif; background:var(--page); color:var(--ink); }
+    button,input,select { font:inherit; }
+    button { cursor:pointer; }
+    .login-screen { min-height:100vh; display:grid; place-items:center; padding:20px; background:linear-gradient(135deg,#26342b,#5d8f35); }
+    .login-card { width:min(100%,420px); background:#fff; padding:42px 36px; border-radius:22px; box-shadow:0 25px 55px #101b133d; }
+    .brand-mark { width:52px; height:52px; display:grid; place-items:center; border-radius:14px; color:#fff; background:var(--green); font-size:28px; }
+    h1,h2,h3,h4,p { margin-top:0; } h1 { font-size:25px; margin:18px 0 7px; } h2 { font-size:20px; } h3 { font-size:16px; } .muted { color:var(--muted); font-size:14px; line-height:1.5; }
+    .field { display:grid; gap:7px; margin:18px 0; font-size:13px; font-weight:700; }
+    input[type=text],input[type=password],select { border:1px solid var(--line); border-radius:9px; padding:12px; background:#fff; color:var(--ink); }
+    .primary { width:100%; background:var(--green); border:0; color:#fff; padding:13px 16px; border-radius:9px; font-weight:700; } .primary:hover { background:var(--green-dark); }
+    .login-error { min-height:20px; color:var(--danger); font-size:13px; margin-top:12px; }.demo { margin-top:22px; padding:12px; border-radius:8px; background:var(--green-soft); color:#496b2d; font-size:12px; }
+    .app { display:none; max-width:1440px; margin:auto; padding:20px; }
+    .header { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:18px 22px; border-radius:16px; background:var(--card); border:1px solid var(--line); box-shadow:0 6px 18px #2432260d; }
+    .header-brand { display:flex; align-items:center; gap:12px; }.header-brand .brand-mark { width:42px;height:42px;font-size:22px;border-radius:11px; }.header-name { font-size:17px; font-weight:800; }.header-name span { color:var(--green); }.header-sub { font-size:12px;color:var(--muted);margin-top:3px; }
+    .header-actions { display:flex; align-items:center; gap:10px; }.site-label { text-align:right; font-size:12px; color:var(--muted); }.site-label strong { display:block;color:var(--ink);font-size:14px;margin-top:2px; }.outline { border:1px solid var(--green); background:#fff; color:var(--green-dark); padding:10px 13px; border-radius:8px; font-weight:700; white-space:nowrap; }
+    .tabs { display:flex; gap:8px; margin:20px 0 0; padding:7px; border-radius:12px; background:#e8ece7; }.tab { flex:1; border:0; border-radius:8px; padding:11px 12px; background:transparent; color:var(--muted); font-size:13px; font-weight:800; }.tab.active { background:#fff; color:var(--green-dark); box-shadow:0 2px 7px #26322616; }.page-section { display:none; }.page-section.active { display:block; }.section-title { margin:28px 0 12px; font-size:18px; }.section-intro { max-width:720px; margin:-3px 0 14px; }.summary { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }.metric { border-top:4px solid var(--green); }.metric:nth-child(2){border-color:#83a962}.metric:nth-child(3){border-color:#82968a}.metric-label { color:var(--muted); text-transform:uppercase; letter-spacing:.05em; font-size:11px; font-weight:700; }.metric-value { margin-top:9px;font-size:25px;font-weight:800; }.metric-value small { font-size:13px;color:var(--muted);font-weight:600; }
+    .content-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:14px; margin-top:14px; }.controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }.action { padding:10px 13px;border:0;border-radius:8px;background:var(--green);color:#fff;font-weight:700; }.action:disabled { opacity:.45;cursor:not-allowed; }.danger { background:var(--danger); margin-left:auto; }.upload { font-size:13px; max-width:210px; }.slider { margin-top:17px; display:flex;gap:12px;align-items:center; padding:11px 0 0;border-top:1px solid var(--line);font-size:13px; }.slider input { flex:1; accent-color:var(--green); }.time { min-width:95px;text-align:right;color:var(--green-dark);font-weight:800; }
+    .critical-banner { display:none; align-items:center; justify-content:space-between; gap:16px; margin:14px 0; padding:14px 16px; border-radius:11px; background:#fbe9e7; border:1px solid #e9aaa3; color:#8f2f25; }.critical-banner.show { display:flex; }.critical-banner strong { display:block; }.critical-banner small { display:block;margin-top:3px; }.critical-banner button { border:0;background:transparent;color:#8f2f25;font-size:22px;line-height:1; }.status { text-align:center;padding:15px;border-radius:9px;background:#f3f5f2;color:var(--muted);font-weight:800; }.status.healthy { background:#edf6e8;color:var(--green-dark); }.status.fault { background:#fbeceb;color:var(--danger); }.status.standby { background:#eef0ee;color:#667069; }.equip { display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:13px; }.equip-item { padding:11px;border-radius:8px;background:#f5f7f4;border-left:3px solid var(--green);text-align:center; }.equip-item span { display:block;font-size:11px;color:var(--muted);min-height:28px; }.equip-item strong { font-size:18px; }
+    .alarm-head { display:flex;justify-content:space-between;align-items:center;gap:8px; }.filters { display:flex; gap:4px; }.filter { padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--muted);font-size:11px; }.filter.active { background:var(--green-soft);color:var(--green-dark);border-color:#a7c58b; }.log { height:177px;overflow:auto;margin-top:12px;padding:10px;border-radius:8px;background:#26312c;color:#dfe9dc;font:12px ui-monospace,Consolas,monospace; }.entry { padding:5px 0;border-bottom:1px solid #ffffff12; }.critical{color:#ffb1a8}.warning{color:#f5d678}.info{color:#b8d99c}.log[data-filter="CRITICAL"] .entry:not(.critical),.log[data-filter="WARNING"] .entry:not(.warning),.log[data-filter="INFO"] .entry:not(.info){display:none}
+    .chart-card { margin-top:14px; }.chart-scroll { overflow-x:auto; padding-bottom:8px; }.chart-stage { height:300px; min-width:100%; position:relative; }.profile { display:grid; grid-template-columns:1fr 1fr; gap:16px; }.profile-block { padding:16px;border:1px solid var(--line);border-radius:11px; }.profile-block h3 { color:var(--green-dark);border-bottom:1px solid var(--line);padding-bottom:9px; }.data-list { display:grid;gap:10px;font-size:13px;line-height:1.4; }.data-list b { display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted); }.site-visual { min-height:330px;border-radius:10px;background:linear-gradient(#233a2466,#233a2466),url('https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=1200&q=80') center/cover;display:flex;align-items:end;padding:16px;color:#fff;font-size:14px;font-weight:700; }.map-frame { width:100%; height:330px; border:0; border-radius:10px; }.insight-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:10px; }.insight { padding:12px;border-radius:9px;background:#f4f7f2;border-left:3px solid var(--green); }.insight span { display:block;color:var(--muted);font-size:11px;overflow-wrap:anywhere; }.insight strong { display:block;margin-top:5px;font-size:16px;color:var(--green-dark);overflow-wrap:anywhere; }.chart-note { margin:0 0 10px;color:var(--muted);font-size:12px; }
+    .welcome { margin-top:12px; }.welcome-banner { padding:22px; border-radius:14px; background:linear-gradient(105deg,#e6f0df,#f7faf5); border:1px solid #d4e2ca; margin-bottom:14px; }.welcome-banner h2 { margin-bottom:6px; color:var(--green-dark); }.toast { position:fixed;right:20px;bottom:20px;z-index:20;display:none;width:min(360px,calc(100vw - 32px));padding:16px 18px;border-radius:12px;background:#8f2f25;color:#fff;box-shadow:0 12px 30px #41110d55; }.toast.show { display:block;animation:slideIn .25s ease-out; }.toast strong { display:block;margin-bottom:5px; }.toast p { margin:0;font-size:13px;line-height:1.4; }.toast button { position:absolute;right:8px;top:7px;background:transparent;border:0;color:#fff;font-size:20px; } @keyframes slideIn { from { transform:translateY(15px);opacity:0 } to { transform:translateY(0);opacity:1 } }
+    @media(max-width:760px){ body{background:#f7f8f6}.app{padding:12px}.header{padding:14px;align-items:flex-start}.header .site-label{display:none}.header-brand .header-sub{display:none}.header-actions{margin-left:auto}.tabs{gap:4px;padding:5px}.tab{padding:10px 5px;font-size:11px}.outline{font-size:12px;padding:9px}.summary,.content-grid,.profile,.insight-grid{grid-template-columns:1fr}.section-title{margin-top:22px}.metric-value{font-size:23px}.controls .upload{width:100%;max-width:none}.danger{margin-left:0}.chart-stage{height:240px}.site-visual,.map-frame{min-height:260px;height:260px}.modal-panel{padding:18px}.equip{grid-template-columns:repeat(2,1fr)}.alarm-head{align-items:flex-start}.filters{flex-wrap:wrap;justify-content:flex-end} }
+  </style>
+</head>
+<body>
+  <main id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-card">
+      <div class="brand-mark">☀</div><h1>Solar Monitoring</h1><p class="muted">Sign in to view SDZ Halal Mart's plant performance and simulation dashboard.</p>
+      <label class="field">Username<input id="username" type="text" placeholder="Enter username" required></label>
+      <label class="field">Password<input id="password" type="password" placeholder="Enter password" required></label>
+      <button class="primary" type="submit">Sign in</button><div id="loginError" class="login-error"></div>
+      <div class="demo">Demo login: <b>admin</b> &nbsp; Password: <b>123456</b></div>
+    </form>
+  </main>
+
+  <main id="app" class="app">
+    <header class="header"><div class="header-brand"><div class="brand-mark">☀</div><div><div class="header-name">THURSINAR <span>ENERGY</span></div><div class="header-sub">Solar plant monitoring dashboard</div></div></div><div class="header-actions"><div class="site-label">PLANT SITE<strong>SDZ Halal Mart</strong></div></div></header>
+    <nav class="tabs" aria-label="Dashboard sections"><button class="tab active" data-section="overview">Overview</button><button class="tab" data-section="location">Location &amp; photo</button><button class="tab" data-section="simulation">Simulation</button></nav>
+    <section id="overview" class="page-section active welcome"><div class="welcome-banner"><h2>Welcome to SDZ Halal Mart Solar Monitoring</h2><p class="muted">This page gives every viewer a clear overview of the plant, its design, location and live simulation performance.</p></div><div class="profile"><section class="profile-block"><h3>General site information</h3><div class="data-list"><div><b>Plant name</b>SDZ Halal Mart</div><div><b>Owner</b>SDz GLOBAL SDN BHD (1065125-M)</div><div><b>Location</b>No 7, Jalan MR-1/2, Taman M-Residensi, Rawang, Selangor</div><div><b>EPCC contractor</b>THURSINAR ENERGY SDN BHD</div></div></section><section class="profile-block"><h3>Hardware &amp; design</h3><div class="data-list"><div><b>DC system size</b>24.8 kW</div><div><b>AC system size / load ratio</b>20.0 kW / 1.24</div><div><b>Inverter model</b>SUNGROW 20 kW</div><div><b>Solar panels</b>Monocrystalline PERC · 550 W · ~45 pieces</div><div><b>Expected annual production</b>30.42 MWh</div><div><b>Target performance ratio</b>77.0%</div></div></section></div></section>
+    <section id="location" class="page-section"><h2 class="section-title">Site photo &amp; location</h2><div class="profile"><section class="profile-block"><h3>Site photo</h3><div class="site-visual">Roof solar array · site photo placeholder</div></section><section class="profile-block"><h3>Location</h3><p class="muted">SDZ Halal Mart, Taman M-Residensi, Rawang, Selangor</p><iframe class="map-frame" title="SDZ Halal Mart location map" loading="lazy" src="https://www.google.com/maps?q=No+7+Jalan+MR-1%2F2,+Taman+M-Residensi,+Rawang,+Selangor&output=embed"></iframe></section></div></section>
+    <section id="simulation" class="page-section"><div id="criticalBanner" class="critical-banner" role="alert"><div><strong>⚠ Critical system alert</strong><small id="criticalBannerText">No active critical events.</small></div><button id="dismissBanner" aria-label="Dismiss critical alert">×</button></div><h2 class="section-title">Today’s performance</h2>
+    <section class="summary"><article class="card metric"><div class="metric-label">Energy generated</div><div class="metric-value" id="energy">0.00 <small>kWh</small></div></article><article class="card metric"><div class="metric-label">Estimated savings</div><div class="metric-value" id="savings">RM 0.00</div></article><article class="card metric"><div class="metric-label">CO₂ avoided</div><div class="metric-value" id="co2">0.00 <small>kg</small></div></article></section>
+    <h2 class="section-title">Simulation</h2>
+    <section class="content-grid"><article class="card"><h3>Data & playback controls</h3><div class="controls"><input id="fileUpload" class="upload" type="file" accept=".xlsx,.csv"><button id="play" class="action" disabled>▶ Play</button><button id="pause" class="action" disabled>❚❚ Pause</button><select id="speed" disabled><option value="1000">1× speed</option><option value="200">5× speed</option><option value="50">20× speed</option></select><button id="fault" class="action danger" disabled>⚡ Inject fault</button></div><div class="slider"><span>Timeline</span><input id="slider" type="range" min="0" max="100" value="0" disabled><span id="time" class="time">--:--</span></div></article><article class="card"><h3>System status</h3><div id="status" class="status">WAITING FOR DATA</div><div id="equipment" class="equip"><div class="muted" style="grid-column:1/-1;text-align:center;padding:12px">Upload a CSV or Excel file to start the simulation.</div></div></article><article class="card"><div class="alarm-head"><h3>Alarm log</h3><div class="filters"><button class="filter active" data-filter="ALL">All</button><button class="filter" data-filter="CRITICAL">Critical</button><button class="filter" data-filter="WARNING">Warnings</button><button class="filter" data-filter="INFO">Info</button></div></div><div id="log" class="log" data-filter="ALL"><div class="entry info">[SYSTEM] Waiting for data upload...</div></div></article></section>
+    <section class="card chart-card"><h3>Real-time output curve</h3><p class="chart-note">The full timeline is retained. Scroll horizontally to view readings from the first recorded time through to the latest time.</p><div id="chartScroll" class="chart-scroll"><div id="chartStage" class="chart-stage"><canvas id="chart"></canvas></div></div></section><section class="card chart-card"><h3>Live data insights</h3><p class="chart-note">Current values extracted from the selected data row. Use the timeline slider to inspect any recorded time.</p><div id="insights" class="insight-grid"><p class="muted">Upload a CSV or Excel file to view the information in your data.</p></div></section></section>
+  </main>
+  <aside id="criticalToast" class="toast" role="alert" aria-live="assertive"><button id="dismissToast" aria-label="Close notification">×</button><strong>⚠ Critical alert</strong><p id="criticalToastText"></p></aside>
+  <script>
+    const $ = id => document.getElementById(id); 
+    let fullData=[], metrics=[], chartMetrics=[], index=0, timer=null, chart=null, labels=[], fault=false, energy=0, criticalActive=false, toastTimer=null;
+    
+    $('loginForm').addEventListener('submit', e => { e.preventDefault(); if ($('username').value==='admin' && $('password').value==='123456') { $('loginScreen').style.display='none'; $('app').style.display='block'; } else $('loginError').textContent='Incorrect username or password. Use the demo credentials below.'; });
+    document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{document.querySelectorAll('.tab').forEach(item=>item.classList.toggle('active',item===tab));document.querySelectorAll('.page-section').forEach(section=>section.classList.toggle('active',section.id===tab.dataset.section));if(tab.dataset.section==='simulation'&&chart)chart.resize();window.scrollTo({top:0,behavior:'smooth'});});
+    
+    function dismissCritical(){ $('criticalBanner').classList.remove('show'); $('criticalToast').classList.remove('show'); } 
+    $('dismissBanner').onclick=dismissCritical; $('dismissToast').onclick=dismissCritical;
+    
+    function notifyCritical(time, reason){ const message=`${reason} at ${time}. Check the inverter, grid connection and site safety immediately.`; $('criticalBannerText').textContent=message; $('criticalBanner').classList.add('show'); $('criticalToastText').textContent=message; $('criticalToast').classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('criticalToast').classList.remove('show'),10000); log(`[${time}] CRITICAL: ${reason}. Immediate attention required.`,'critical'); }
+    function log(message, kind='info'){ const box=$('log'), last=box.lastElementChild; if(last&&last.textContent.includes(message))return; box.insertAdjacentHTML('beforeend',`<div class="entry ${kind}">${message}</div>`);box.scrollTop=box.scrollHeight; }
+    
+    document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('log').dataset.filter=b.dataset.filter;});
+    
+    $('fileUpload').onchange=e=>{
+        const file=e.target.files[0];if(!file)return;
+        const reader=new FileReader();
+        reader.onload=ev=>{
+            const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+            // FIX: raw:false ensures Excel serial dates are converted back to formatted string text
+            fullData=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:0, raw:false});
+            if(!fullData.length)return;
+            metrics=Object.keys(fullData[0]).filter(k=>k.toLowerCase()!=='time'&&k.trim());
+            index=0;energy=0;criticalActive=false;fault=false;dismissCritical();
+            $('fault').textContent='⚡ Inject fault';$('fault').style.background='';
+            $('slider').max=fullData.length-1;
+            ['slider','speed','play','fault'].forEach(id=>$(id).disabled=false);
+            $('pause').disabled=true;
+            initChart();process(fullData[0]);log(`Loaded ${file.name}. Press Play to begin.`);
+        };
+        reader.readAsArrayBuffer(file);
+    };
+    
+    $('play').onclick=()=>{clearInterval(timer);$('play').disabled=true;$('pause').disabled=false;timer=setInterval(()=>{if(index>=fullData.length-1){clearInterval(timer);timer=null;$('play').disabled=false;$('pause').disabled=true;log('End of dataset reached.');return;}index++;$('slider').value=index;process(fullData[index]);},+$('speed').value);}; 
+    $('pause').onclick=()=>{clearInterval(timer);timer=null;$('play').disabled=false;$('pause').disabled=true;}; 
+    $('speed').onchange=()=>{if(timer){clearInterval(timer);timer=null;$('play').disabled=false;$('play').click();}};
+    $('slider').oninput=()=>{
+        index=+$('slider').value;energy=0;for(let i=0;i<index;i++)calculate(fullData[i]);
+        labels.length=0;chart.data.datasets.forEach(d=>d.data=[]);
+        for(let i=0;i<=index;i++){
+            const chartRow={...fullData[i]};
+            if(fault)metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))chartRow[m]=0});
+            const chartTime=chartRow.Time||chartRow[Object.keys(chartRow)[0]]||`Row ${i}`;
+            updateChart(chartTime,chartRow);
+        }
+        const current={...fullData[index]};
+        if(fault)metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))current[m]=0});
+        const time=current.Time||current[Object.keys(current)[0]]||`Row ${index}`;
+        $('time').textContent=time;calculate(current);drawEquipment(current);updateInsights(time,current);status(time,current);
+    }; 
+    
+    $('fault').onclick=()=>{fault=!fault;$('fault').textContent=fault?'↻ Restore grid':'⚡ Inject fault';$('fault').style.background=fault?'#bd8616':'';process(fullData[index]);};
+    
+    function process(row){const time=row.Time||row[Object.keys(row)[0]]||`Row ${index}`, data={...row};if(fault)metrics.forEach(m=>{if(/voltage|power|current|ac/i.test(m))data[m]=0});$('time').textContent=time;calculate(data);drawEquipment(data);updateInsights(time,data);status(time,data);updateChart(time,data);}
+    function calculate(data){let powerMetric=metrics.find(m=>/power.*active|active.*power/i.test(m))||metrics.find(m=>/power/i.test(m)),kw=powerMetric?+data[powerMetric]:0;if(kw>0)energy+=kw*.25;$('energy').innerHTML=`${energy.toFixed(2)} <small>kWh</small>`;$('savings').textContent=`RM ${(energy*.5).toFixed(2)}`;$('co2').innerHTML=`${(energy*.6).toFixed(2)} <small>kg</small>`;}
+    function drawEquipment(data){$('equipment').innerHTML=metrics.slice(0,6).map(m=>{let v=parseFloat(data[m])||0;return `<div class="equip-item"><span>${m.replace('Inverter1/','').slice(0,24)}</span><strong style="color:${v?'#396520':'#b84a3b'}">${v.toFixed(2)}</strong></div>`}).join('');}
+    
+    // NEW ACOF LOGIC GATE STATUS FUNCTION
+    function status(time, data) {
+        const measuredGridLoss = metrics.some(m => /voltage.*(phase|ac)|(phase|ac).*voltage/i.test(m) && parseFloat(data[m]) === 0);
+        const dcPowerKey = metrics.find(m => /dc power/i.test(m));
+        const dcPowerVal = dcPowerKey ? parseFloat(data[dcPowerKey]) : 0;
+        
+        // ACOF Logic Gate: Identify contradictory state (0V Grid Loss paired with High/Max Generation)
+        const isAcofTestRow = measuredGridLoss && (dcPowerVal > 20.0);
+        const issue = fault || measuredGridLoss;
+        const node = $('status');
+        
+        node.className = 'status ' + (issue ? 'fault' : 'healthy');
+        
+        if (isAcofTestRow) {
+            node.textContent = '⚡ ACOF LOGIC VALIDATION ALARM';
+            node.style.background = '#ffebee';
+            node.style.color = '#c62828';
+            if (!criticalActive) {
+                notifyCritical(time, 'ACOF Testing Alert: Contradictory State Detected (0.0V Grid Loss vs ' + dcPowerVal + 'kW DC Power) - False-Positive Suppressed');
+            }
+        } else {
+            node.style.background = ''; 
+            node.style.color = '';
+            node.textContent = issue ? '⚠ GRID / SYSTEM FAULT' : '✓ ONLINE — HEALTHY';
+            if (issue && !criticalActive) {
+                notifyCritical(time, fault ? 'Simulation grid fault injected manually' : 'AC grid voltage loss detected');
+            }
+        }
+        criticalActive = issue;
+    }
+
+    function updateInsights(time,data){const items=[['Recorded time',time],...metrics.map(m=>[m.replace('Inverter1/',''),Number.isFinite(parseFloat(data[m]))?parseFloat(data[m]).toFixed(2):String(data[m]||'—')])];$('insights').innerHTML=items.map(([label,value])=>`<div class="insight"><span>${label}</span><strong>${value}</strong></div>`).join('');}
+    
+    function initChart(){
+        if(chart)chart.destroy();
+        labels=[];
+        const colors=['#5d8f35','#83a962','#bd8616','#82968a'];
+        
+        // FIX: Find the "power" columns to graph instead of Voltage/Current
+        chartMetrics = metrics.filter(m => /power/i.test(m)).slice(0, 4);
+        if(chartMetrics.length === 0) chartMetrics = metrics.slice(0,4); // fallback if no power column
+        
+        chart=new Chart($('chart'),{
+            type:'line',
+            data:{
+                labels,
+                datasets:chartMetrics.map((m,i)=>({
+                    label:m.replace('Inverter1/',''),
+                    data:[],
+                    borderColor:colors[i],backgroundColor:colors[i]+'22',fill:true,tension:.3,pointRadius:0,borderWidth:2
+                }))
+            },
+            options:{responsive:true,maintainAspectRatio:false,animation:{duration:0},plugins:{legend:{labels:{color:'#526058'}},},scales:{x:{grid:{color:'#edf0ec'},ticks:{color:'#758078',maxRotation:55,minRotation:55}},y:{beginAtZero:true,grid:{color:'#edf0ec'},ticks:{color:'#758078'}}}}
+        });
+    }
+    
+    function updateChart(time,data){
+        if(!chart)return;
+        labels.push(time);
+        const stage=$('chartStage'),scroll=$('chartScroll');
+        stage.style.width=`${Math.max(scroll.clientWidth,labels.length*46)}px`;
+        chart.resize();
+        chart.data.datasets.forEach((d,i)=>d.data.push(parseFloat(data[chartMetrics[i]])||0));
+        chart.update();
+        scroll.scrollLeft=scroll.scrollWidth;
+    }
+  </script>
+</body>
+</html>
